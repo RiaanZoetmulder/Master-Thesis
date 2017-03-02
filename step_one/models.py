@@ -37,7 +37,7 @@ class Generator(object):
         # inputs for feed dict.
         # x should be a matrix of word Id's, integer valued
         # embedding placeholder is 
-        self.x = x = tf.placeholder(tf.int32, [None, self.args.max_len], name='input_placeholder')  # None, 256
+        self.x = x = tf.placeholder(tf.int64, [None, self.args.max_len], name='input_placeholder')  # None, 256
         self.embedding_placeholder = embedding_placeholder = tf.placeholder(tf.float32, 
                                                                             [self.vocab_size,
                                                                              self.embedding_dim]) # about 140000, 200
@@ -46,7 +46,7 @@ class Generator(object):
         
         with tf.variable_scope("Generator"):
             # create variable for embeddings
-            W = tf.Variable(tf.constant(0.0, shape=[self.vocab_size, self.embedding_dim]),
+            W = tf.Variable(tf.constant(0.0, shape=[self.vocab_size, self.embedding_dim], dtype = tf.float32),
                     trainable=False, name="W")
             
             # assign embeddings, doing this should ensure it is not trainable.
@@ -100,11 +100,11 @@ class Generator(object):
                 
                     # collect outputs
                     h1, _=  tf.nn.dynamic_rnn(self.layers[0],
-                                              inputs,
+                                              inputs, dtype =tf.float32,
                                               initial_state= self.zero_states[0], time_major = True)
                     
                     h2, _=  tf.nn.dynamic_rnn(self.layers[1],
-                                              inputs_reversed,
+                                              inputs_reversed,dtype =tf.float32,
                                               initial_state= self.zero_states[1], time_major = True)
                     
                 # concatenate outputs
@@ -134,7 +134,9 @@ class Generator(object):
                     probs = self.probs= output_layer.forward_all(h_concat, zpred)
                 
                 with tf.name_scope('sigmoid_cross_entropy'):
-                    logpz = self.logpz = - tf.nn.sigmoid_cross_entropy_with_logits(probs, zpred) * masks
+                    #logpz = self.logpz =  - tf.nn.sigmoid_cross_entropy_with_logits(probs, zpred) * masks
+                    
+                    logpz = self.logpz = (zpred*tf.log(probs) + (1.0 - zpred)* tf.log(1.0 - probs)) * masks
                 
                 logpz = self.logpz = tf.reshape(logpz,tf.shape(x), name = 'reshape_logpz')
                 probs = self.probs = tf.reshape(probs, tf.shape(x), name = 'probs_reshape')
@@ -162,8 +164,8 @@ class Generator(object):
             # get l2 cost for all parameters
             varls = tf.trainable_variables() 
             lossL2 = tf.add_n([ tf.nn.l2_loss(v) for v in varls
-                        if 'bias' not in v.name ]) * self.args.l2_reg
-            
+                         ]) * self.args.l2_reg
+            # if 'bias' not in v.name
             self.L2_loss = lossL2
 
 
@@ -287,6 +289,8 @@ class Encoder(object):
                 
                 
                 loss_mat = self.loss_mat = (preds-y)**2 # batch
+                
+                self.loss_mat_check = tf.reduce_sum(loss_mat)
     
                 # difference in predicitons
                 pred_diff = self.pred_diff = tf.reduce_mean(tf.reduce_max(preds, 1) - tf.reduce_min(preds, 1))
@@ -318,7 +322,7 @@ class Encoder(object):
                 # loss function as mentioned in the paper
                 cost_vec = loss_vec + zsum * args.sparsity + zdiff * coherent_factor
     
-                cost_logpz = tf.reduce_mean(cost_vec * tf.reduce_sum(logpz, 0))
+                self.cost_logpz = cost_logpz = tf.reduce_mean(cost_vec * tf.reduce_sum(logpz, 0))
                 self.obj = tf.reduce_mean(cost_vec)
     
                 variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='Encoder')
@@ -335,9 +339,10 @@ class Encoder(object):
                 
                 # theano code
                 
-                lossL2 = tf.add_n([ tf.nn.l2_loss(v) for v in variables
-                            if 'bias' not in v.name ]) * self.args.l2_reg
-                
+                lossL2 =self.loss_l2_e= tf.add_n([ tf.nn.l2_loss(v) for v in variables
+                            ]) * self.args.l2_reg
+                # if 'bias' not in v.name 
+                self.loss_l2_g = gen.L2_loss
                 # generator and encoder loss
                 self.cost_g = cost_logpz * 10 + gen.L2_loss
                 self.cost_e = loss * 10 + lossL2
@@ -467,7 +472,7 @@ class Model(object):
                     
                     # notify user for elapsed time
                     if (i+1)%10 ==0:
-                        print "\r{}/{} {:.2f}       ".format(i+1,N,p1/(i+1))
+                        print "\r{}/{} {:.5f}       ".format(i+1,N,p1/(i+1))
                         print 'cost: ', cost
                         print 'loss: ', loss
                         print 'sparsity cost: ', sparsity_cost
@@ -483,13 +488,20 @@ class Model(object):
                         print 'shape of x: ', bx.shape
                         continue 
                     
+    
                     
                     feed_dict = {self.x: bx,
                                  self.y : by, 
                                  self.generator.embedding_placeholder: self.embedding_layer.params[0], 
-                                 self.generator.dropout: args.dropout, 
+                                 self.generator.dropout: 1.0 - args.dropout, 
                                  self.generator.training: True}
-
+                                 
+                    # losse, lossg, logpz = sess.run([self.encoder.loss_l2_e, self.encoder.loss_l2_g, self.generator.logpz], feed_dict)
+                    
+                    # print 'reglosses: ', losse,' ', lossg
+                    
+                    # print 'logpz: ', logpz
+     
                     _,_, cost, loss, sparsity_cost, bz, summary  = sess.run([train_step_enc,train_step_gen,
                                                 self.encoder.obj,
                                                 self.encoder.loss,

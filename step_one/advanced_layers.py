@@ -43,7 +43,7 @@ class RCNNCell(RNNCell):
             
             W = tf.get_variable('weights' + str(order) ,                            # naming
                                     [n_in, n_out],                                  # Dims 
-                                    initializer = tf.contrib.layers.initializers.xavier_initializer())
+                                    initializer = tf.contrib.layers.initializers.xavier_initializer(), dtype = tf.float32)
             
             #tf.histogram_summary(scope or name + 'weights', W)
 
@@ -54,7 +54,7 @@ class RCNNCell(RNNCell):
             if hasbias:
                 B = tf.get_variable( 'biases_'+ str(order),
                                         [1],
-                                        initializer = tf.constant_initializer(0.0))
+                                        initializer = tf.constant_initializer(0.0), dtype = tf.float32)
                 out = out + B
         
             return out
@@ -152,7 +152,7 @@ class RCNNCell(RNNCell):
                 
             bias = tf.get_variable( 'bias_out' + '_%s'%self._idx,
                             [self._num_units,],
-                            initializer = tf.constant_initializer(0.0))
+                            initializer = tf.constant_initializer(0.0),  dtype = tf.float32)
                 
             #forget_t = tf.nn.sigmoid(tf.nn.rnn_cell._linear([inputs, ht_m1],
             #                                             self._num_units,
@@ -187,10 +187,10 @@ class RCNNCell(RNNCell):
                 c_i_t = forget_t * c_i_tm1 + (1.0-forget_t) * in_i_t
             
             elif self._mode == 0:
-                c_i_t = forget_t * c_i_tm1 + (1-forget_t) * (in_i_t * c_im1_t)
+                c_i_t = forget_t * c_i_tm1 + (1.0-forget_t) * (in_i_t * c_im1_t)
             
             else:
-                c_i_t = forget_t * c_i_tm1 + (1-forget_t) * (in_i_t + c_im1_tm1)
+                c_i_t = forget_t * c_i_tm1 + (1.0-forget_t) * (in_i_t + c_im1_tm1)
                 
             lst.append(c_i_t)
             c_im1_tm1 = c_i_tm1
@@ -207,6 +207,8 @@ class RCNNCell(RNNCell):
                                                  self._num_units,
                                                 True, 1.0,
                                               scope = scope or "RCNN_cell" + '_%s'% (str(self._idx) + 'out_t'))
+                
+                
             
             h_t = out_t * self._activation(c_i_t + bias, name = 'with_outgate')
             
@@ -350,9 +352,9 @@ class Z_Layer(object):
         # h_tm1 = (batch, hidden* (order + 1))
         
         with vs.variable_scope('ZLayerWeights', reuse=True) as var_scope:
-            w1 = tf.get_variable('W1')
-            w2 = tf.get_variable('W2')
-            bias = tf.get_variable('Bias')
+            w1 = tf.get_variable('W1', dtype = tf.float32)
+            w2 = tf.get_variable('W2', dtype = tf.float32)
+            bias = tf.get_variable('Bias', dtype = tf.float32)
 
             
         # make a prediction
@@ -376,9 +378,9 @@ class Z_Layer(object):
         
         # get the variables
         with vs.variable_scope('ZLayerWeights', reuse=True) as var_scope:
-            w1 = tf.get_variable('W1')
-            w2 = tf.get_variable('W2')
-            bias = tf.get_variable('Bias')
+            w1 = tf.get_variable('W1', dtype = tf.float32)
+            w2 = tf.get_variable('W2', dtype = tf.float32)
+            bias = tf.get_variable('Bias', dtype = tf.float32)
             self.w1sum = tf.histogram_summary('ZlayerW1', w1)
             self.w2sum = tf.histogram_summary('ZlayerW2', w2)
             self.biassum = tf.histogram_summary('ZlayerB', bias)
@@ -397,7 +399,11 @@ class Z_Layer(object):
         # ensure that the variables are reused in RCNN
         self.rlayer.reuse = True
         
-        rnn_outputs, h = tf.nn.dynamic_rnn(self.rlayer, xz, initial_state = h_temp, time_major = True)
+        with tf.name_scope('dyn_rnn_forward_pass_zlayer'):
+            rnn_outputs, h = tf.nn.dynamic_rnn(self.rlayer, xz, initial_state = h_temp, time_major = True)
+        
+        print 'rnn_outputs shape: ', rnn_outputs.get_shape()
+        print 'h shape: ', h.get_shape()
         
         # Concatenate the hidden state?
         h_prev = tf.concat(0,[h0, rnn_outputs[:-1]])
@@ -411,6 +417,7 @@ class Z_Layer(object):
         hshape = h_prev.get_shape().as_list()
         
         # reshape x such that matmul is possible
+        # TODO: check reshapes
         tp1 = tf.reshape(x, [-1, xshape[2]])
         a_tp = tf.matmul(tp1, w1)
         a = tf.reshape(a_tp, [-1, xshape[1], 1])
@@ -424,12 +431,12 @@ class Z_Layer(object):
         pz = sigmoid(a+b+bias)
         
         
-        pz = tf.squeeze(pz, squeeze_dims= [2])
+        pz_reshaped = tf.squeeze(pz, squeeze_dims= [2])
         
         # return the matrix of predictions
-        assert len(pz.get_shape()) == 2
+        assert len(pz_reshaped.get_shape()) == 2
         
-        return pz
+        return pz_reshaped
     
         
     # adapted version of sample
@@ -441,9 +448,9 @@ class Z_Layer(object):
     
         # get the variables
         with vs.variable_scope('ZLayerWeights', reuse=True) as var_scope:
-            w1 = tf.get_variable('W1')
-            w2 = tf.get_variable('W2')
-            bias = tf.get_variable('Bias')
+            w1 = tf.get_variable('W1', dtype = tf.float32)
+            w2 = tf.get_variable('W2', dtype = tf.float32)
+            bias = tf.get_variable('Bias', dtype = tf.float32)
         
         
         pz_t = sigmoid(
@@ -455,6 +462,7 @@ class Z_Layer(object):
         
         pz_t = tf.squeeze(pz_t)
         
+        # TODO: Changed less equal into larger equal change back if fail
         z_t = tf.cast(tf.less_equal(tf.random_uniform(pz_t.get_shape(), dtype=tf.float32, seed=seed), pz_t),
                       tf.float32)
         
@@ -471,9 +479,9 @@ class Z_Layer(object):
         
         # get the variables
         with vs.variable_scope('ZLayerWeights', reuse=True) as var_scope:
-            w1 = tf.get_variable('W1')
-            w2 = tf.get_variable('W2')
-            bias = tf.get_variable('Bias')
+            w1 = tf.get_variable('W1', dtype = tf.float32)
+            w2 = tf.get_variable('W2', dtype = tf.float32)
+            bias = tf.get_variable('Bias', dtype = tf.float32)
         
         h0 = tf.zeros((x.get_shape()[1], self._n_hidden*(self.rlayer._order+1)), dtype = tf.float32)
         z0 = tf.zeros((x.get_shape()[1],), dtype=tf.float32)
@@ -500,12 +508,8 @@ class ExtRCNNCell(RCNNCell):
     def __call__(self, x, hc_tm1):
         x_t, mask_t = x[0], x[1]
         prevstate, hc_t  = super(ExtRCNNCell, self).__call__(x_t, hc_tm1)
-        #print 'shape of mask: ', mask_t.get_shape()
-        #print 'shape of hct: ', hc_t.get_shape()
-        #print 'shape of hctm1: ', hc_tm1.get_shape()
-        #print 'shape of prevstate: ', prevstate.get_shape()
         a= mask_t * hc_t 
-        b = (1-mask_t) * hc_tm1    
+        b = (1.0-mask_t) * hc_tm1    
         hc_t = a + b
         return prevstate, hc_t
 
