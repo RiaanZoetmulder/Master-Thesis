@@ -25,7 +25,8 @@ import random
 # Code from Tau lei #
 #####################
 
-default_rng = np.random.RandomState(random.randint(0,9999))
+#default_rng = np.random.RandomState(random.randint(0,9999))
+default_rng = np.random.RandomState(2345)
 def random_init(size, rng=None, rng_type=None):
     if rng is None: rng = default_rng
     if rng_type is None:

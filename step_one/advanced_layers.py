@@ -42,10 +42,10 @@ class RCNNCell(RNNCell):
         with vs.variable_scope(scope or name, reuse = reuse) as scop:
             
             W = tf.get_variable('weights' + str(order) ,                            # naming
-                                    [n_in, n_out],                                  # Dims 
-                                    initializer = tf.contrib.layers.initializers.xavier_initializer(), dtype = tf.float32)
+                                    [n_in, n_out],initializer = tf.random_uniform_initializer(-0.05, 0.05)                                  # Dims 
+                                    )
             
-            #tf.histogram_summary(scope or name + 'weights', W)
+            tf.histogram_summary(scope or name + 'weights', W)
 
             
             out = tf.matmul(inputs, W)
@@ -122,10 +122,10 @@ class RCNNCell(RNNCell):
 
         return zeros
         
-            
+    # Note swap state and inputs if NOT using scan        
     def __call__(self, 
-                 inputs,                # input tensor
-                 state,                 # state tensor 
+                 state,                 # state tenso
+                 inputs,                # INPUTS TENSOR
                  mode = 1,              # 0 if non-linear filter; 1 if linear filter (default),
                  scope = None,          # custom scope if you'd like.
                  scope2 = None          # custom scope for the feedforward layer
@@ -136,6 +136,9 @@ class RCNNCell(RNNCell):
         '''
         
         # sizes 
+        #print 'shapes in RCNN '  + str(scope)
+        #print state.get_shape()
+        #print inputs.get_shape()
         
         input_size = inputs.get_shape()[1] # 256
         
@@ -153,12 +156,8 @@ class RCNNCell(RNNCell):
             bias = tf.get_variable( 'bias_out' + '_%s'%self._idx,
                             [self._num_units,],
                             initializer = tf.constant_initializer(0.0),  dtype = tf.float32)
-                
-            #forget_t = tf.nn.sigmoid(tf.nn.rnn_cell._linear([inputs, ht_m1],
-            #                                             self._num_units,
-            #                                              True
-            #                                                ))
-            forget_cell = tf.nn.rnn_cell.BasicRNNCell(self._num_units, activation = tf.sigmoid)
+            
+            forget_cell = tf.nn.rnn_cell.BasicRNNCell(self._num_units, activation = tf.nn.sigmoid)
             forget_t = forget_cell(inputs, ht_m1)[0]
             
         lst = [ ]   
@@ -206,7 +205,7 @@ class RCNNCell(RNNCell):
                 out_t = tf.nn.rnn_cell._linear([inputs, ht_m1],
                                                  self._num_units,
                                                 True, 1.0,
-                                              scope = scope or "RCNN_cell" + '_%s'% (str(self._idx) + 'out_t'))
+                                                 scope = scope or "RCNN_cell" + '_%s'% (str(self._idx) + 'out_t'))
                 
                 
             
@@ -217,12 +216,24 @@ class RCNNCell(RNNCell):
         
         # depending on the shape of the state tensor
         # return ...
+        '''
+        # comment in if you want to use the dynamic rnn function again
         if len(state.get_shape()) > 1:
             
             return   h_t, tf.concat(1,lst)
             
         else:
             return   h_t, tf.concat(1,lst)
+        '''
+        
+        #print 'end RCNN '  + str(scope)
+        
+        if len(state.get_shape()) > 1:
+            return tf.concat(1,lst)
+        else:
+            return tf.concatenate(lst)
+        
+
 ###############################
 #######  MultiRNNCell #########
 ###############################
@@ -329,9 +340,9 @@ class Z_Layer(object):
         
         with vs.variable_scope('ZLayerWeights') as var_scope: 
             w1 = tf.get_variable('W1', [n_in,1], dtype = tf.float32, 
-                                 initializer = tf.contrib.layers.initializers.xavier_initializer())
+                                 initializer = tf.random_uniform_initializer(-0.05, 0.05))
             w2 = tf.get_variable('W2', [n_hidden,1], dtype = tf.float32, 
-                                 initializer = tf.contrib.layers.initializers.xavier_initializer())
+                                 initializer = tf.random_uniform_initializer(-0.05, 0.05))
             bias = tf.get_variable('Bias', 
                                    [1], 
                                    initializer=tf.constant_initializer(0.0), 
@@ -399,18 +410,23 @@ class Z_Layer(object):
         # ensure that the variables are reused in RCNN
         self.rlayer.reuse = True
         
-        with tf.name_scope('dyn_rnn_forward_pass_zlayer'):
-            rnn_outputs, h = tf.nn.dynamic_rnn(self.rlayer, xz, initial_state = h_temp, time_major = True)
         
-        print 'rnn_outputs shape: ', rnn_outputs.get_shape()
-        print 'h shape: ', h.get_shape()
+        with tf.variable_scope('RNN'):
+            
+            # here too changed the dynamic rnn to scan
+            htp = tf.scan(self.rlayer, xz, initializer= h_temp)
+            h = htp[:,:, self.rlayer._order * self.rlayer._num_units:]
+        
+        # print 'rnn_outputs shape: ', rnn_outputs.get_shape()
+        #print 'h shape: ', h.get_shape()
         
         # Concatenate the hidden state?
-        h_prev = tf.concat(0,[h0, rnn_outputs[:-1]])
+        # changed the rnn_outputs var here too, change back if you wish to do so(swapped with h)
+        h_prev = tf.concat(0,[h0, h[:-1]])
         
         # check shapes
         assert len(h_prev.get_shape()) == 3
-        assert len(h.get_shape())      == 2
+        assert len(h.get_shape())      == 3
 
         # get the shapes
         xshape = x.get_shape().as_list()
@@ -471,7 +487,10 @@ class Z_Layer(object):
         # set reuse in rlayer to none
         self.rlayer.reuse = None
         
-        _, h_t = self.rlayer( xz_t,  h_tm1, scope = 'RNN/RCNN_cell_ZLayer', scope2 = 'RNN/RCNN_Feed_Forward_Layer')
+        #print 'xzt shape ', xz_t.get_shape(), 'h_tm1 shape:', h_tm1.get_shape() 
+        
+        # MODIFICATION if return to prior state: swap xzt and htm1 and only returns 1 tensor now
+        h_t = self.rlayer(h_tm1, xz_t, scope = 'RNN/RCNN_cell_ZLayer', scope2 = 'RNN/RCNN_Feed_Forward_Layer')
         
         return [h_t , tf.expand_dims(z_t, 1)] 
     
@@ -486,6 +505,8 @@ class Z_Layer(object):
         h0 = tf.zeros((x.get_shape()[1], self._n_hidden*(self.rlayer._order+1)), dtype = tf.float32)
         z0 = tf.zeros((x.get_shape()[1],), dtype=tf.float32)
         
+        #print 'in sample all function z layer'
+        #print x.get_shape()
         
         h, z = tf.scan(
                     self.sample,
@@ -493,7 +514,7 @@ class Z_Layer(object):
                     initializer = [ h0, tf.expand_dims(z0, 1 )]
                     )
         
-        print 'shape of z:', z.get_shape()
+        #print 'shape of z:', z.get_shape()
         z = tf.squeeze(z, squeeze_dims = [2])
         assert len(z.get_shape()) == 2
         
@@ -504,14 +525,15 @@ class Z_Layer(object):
 ###############################
 
 class ExtRCNNCell(RCNNCell):
-
-    def __call__(self, x, hc_tm1):
+    
+    # changes made here
+    def __call__(self, hc_tm1, x ):
         x_t, mask_t = x[0], x[1]
-        prevstate, hc_t  = super(ExtRCNNCell, self).__call__(x_t, hc_tm1)
+        hc_t  = super(ExtRCNNCell, self).__call__(hc_tm1, x_t)
         a= mask_t * hc_t 
         b = (1.0-mask_t) * hc_tm1    
         hc_t = a + b
-        return prevstate, hc_t
+        return hc_t
 
 
     def copy_params(self, from_obj):

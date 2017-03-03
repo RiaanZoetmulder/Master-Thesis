@@ -33,7 +33,7 @@ class Generator(object):
         
         
     def ready(self):
-        
+        args = self.args
         # inputs for feed dict.
         # x should be a matrix of word Id's, integer valued
         # embedding placeholder is 
@@ -54,7 +54,6 @@ class Generator(object):
             
             # embedding lookup
             rnn_inputs = self.rnn_inputs =  tf.nn.embedding_lookup(embedding_init, x) # (batch, max_len, embedding_size)
-            
             
             # set the padding id
             padding_id = self.padding_id = self.embs.vocab_map["<padding>"]
@@ -86,30 +85,52 @@ class Generator(object):
                 # len * batch --> len is simply the number of similarly shaped objects, batch is maximum words
                 masks = tf.cast(tf.not_equal(x, padding_id), tf.float32, name = 'masks_generator')
                 
+                self.masks = masks
+                
+                
+                
                 # apply dropout depending on whether training or not
-                inputs = tf.cond(training,
-                                 lambda: tf.nn.dropout(rnn_inputs, dropout), 
-                                 lambda: rnn_inputs, name='dropout_input')
+                #inputs = tf.cond(training,
+                #                 lambda: tf.nn.dropout(rnn_inputs, dropout), 
+                #                 lambda: rnn_inputs, name='dropout_input')
+                
+                inputs = tf.nn.dropout(rnn_inputs, dropout)
                 
                 # reverse sentences
-                inputs_reversed = tf.cond(training,
-                                          lambda: tf.nn.dropout(rnn_inputs[::-1], dropout),
-                                          lambda: rnn_inputs[::-1], 
-                                          name='dropout_input_reversed')
+                inputs_reversed = inputs[::-1]
+                
+                self.avg_inp = tf.reduce_mean(inputs_reversed[0,:10])
+                
+                
                 with tf.name_scope('dynamic_rnn_encoder'):
                 
                     # collect outputs
-                    h1, _=  tf.nn.dynamic_rnn(self.layers[0],
+                    '''
+                    _, h1tp=  tf.nn.dynamic_rnn(self.layers[0],
                                               inputs, dtype =tf.float32,
                                               initial_state= self.zero_states[0], time_major = True)
                     
-                    h2, _=  tf.nn.dynamic_rnn(self.layers[1],
+                    _, h2tp=  tf.nn.dynamic_rnn(self.layers[1],
                                               inputs_reversed,dtype =tf.float32,
                                               initial_state= self.zero_states[1], time_major = True)
+                    '''
+                    h1tp = tf.scan(self.layers[0], inputs, initializer = self.zero_states[0])
+                    h2tp = tf.scan(self.layers[1], inputs, initializer = self.zero_states[1])
+                    
+                    if len(h1tp.get_shape())>1:
+                        h1 = h1tp[:,:, n_d * args.order:]
+                        h2 = h2tp[:,:, n_d * args.order:]
+                    else:
+                        h1 = h1tp[:, n_d * args.order:]
+                        h2 = h2tp[:, n_d * args.order:]
+                        
+                    #print 'h1 shape after rcnn input layers: ', h1.get_shape()
+
                     
                 # concatenate outputs
                 h_concat = tf.concat(2,[h1, h2[::-1]])
                 
+                self.avg = h_concat[0, :20, 0]
                 
                 # apply dropout to output first layer
                 h_final = tf.cond(training,
@@ -126,6 +147,7 @@ class Generator(object):
                 # sample a which words should be kept
                 zpred = output_layer.sample_all(h_final)
                 
+                self.zpredsum = tf.reduce_sum(zpred)
                 # z itself should not be updated
                 zpred = tf.stop_gradient(zpred)
         
@@ -136,7 +158,7 @@ class Generator(object):
                 with tf.name_scope('sigmoid_cross_entropy'):
                     #logpz = self.logpz =  - tf.nn.sigmoid_cross_entropy_with_logits(probs, zpred) * masks
                     
-                    logpz = self.logpz = (zpred*tf.log(probs) + (1.0 - zpred)* tf.log(1.0 - probs)) * masks
+                    logpz  = (zpred*tf.log(probs) + (1.0 - zpred)* tf.log(1.0 - probs)) * masks
                 
                 logpz = self.logpz = tf.reshape(logpz,tf.shape(x), name = 'reshape_logpz')
                 probs = self.probs = tf.reshape(probs, tf.shape(x), name = 'probs_reshape')
@@ -233,14 +255,24 @@ class Encoder(object):
                 # print 'embs: ', embs.get_shape()
                 layers_enc = []
                 for idx, layer in enumerate(layers):
-    
+                    
+                    h_temp = tf.scan(layer, (h_prev, z), initializer = zero_states[idx])
+                    
+                    if len(h_temp.get_shape())>1:
+                        
+                        layers_enc.append(h_temp[:,:,layer._order*layer._num_units:])
+                    else:
+                        layers_enc.append(h_temp[:,layer._order*layer._num_units:])
+                        
                     # a bug might occur here because you are using the same names for hnext t and t+1 
+                    '''
                     layers_enc.append(
                                       tf.nn.dynamic_rnn(layer,
                                               (h_prev, z),
                                               initial_state= zero_states[idx], 
-                                              time_major = True)[0]
+                                              time_major = True)
                                       )
+                    '''
                     print 'layer ' + str(idx)+ ' ', layers_enc[idx].get_shape()
     
                     ############################
@@ -275,7 +307,7 @@ class Encoder(object):
                                  lambda: h_final, name='dropout_h_next')
 
 
-            print h_final.get_shape()
+            #print h_final.get_shape()
             # implement final layer
             
             with tf.name_scope('output_layer'):
@@ -283,7 +315,7 @@ class Encoder(object):
                 
                 tf.histogram_summary('encoder_output', h_final)
 
-            print 'preds: ', preds.get_shape()
+            #print 'preds: ', preds.get_shape()
             
             with tf.name_scope('error_functions_encoder'):
                 
@@ -347,7 +379,7 @@ class Encoder(object):
                 self.cost_g = cost_logpz * 10 + gen.L2_loss
                 self.cost_e = loss * 10 + lossL2
                 
-                print 'initialized!'
+                print 'Fully Initialized!'
 # TODO: Finish the model
 
 ###############################
@@ -471,11 +503,8 @@ class Model(object):
                 for i in xrange(N):
                     
                     # notify user for elapsed time
-                    if (i+1)%10 ==0:
-                        print "\r{}/{} {:.5f}       ".format(i+1,N,p1/(i+1))
-                        print 'cost: ', cost
-                        print 'loss: ', loss
-                        print 'sparsity cost: ', sparsity_cost
+                    #if (i+1)%10 ==0:
+                    
                     
                     # training batches for this round
                     bx, by = train_batches_x[i], train_batches_y[i]
@@ -493,14 +522,11 @@ class Model(object):
                     feed_dict = {self.x: bx,
                                  self.y : by, 
                                  self.generator.embedding_placeholder: self.embedding_layer.params[0], 
-                                 self.generator.dropout: 1.0 - args.dropout, 
+                                 self.generator.dropout:1.0 -  args.dropout, 
                                  self.generator.training: True}
                                  
-                    # losse, lossg, logpz = sess.run([self.encoder.loss_l2_e, self.encoder.loss_l2_g, self.generator.logpz], feed_dict)
-                    
-                    # print 'reglosses: ', losse,' ', lossg
-                    
-                    # print 'logpz: ', logpz
+                    #losse, lossg, logpz, masks, probs, avg, inp_avg, zpredsum= sess.run([self.encoder.loss_l2_e, self.encoder.loss_l2_g, self.generator.logpz, self.generator.masks, self.generator.probs, self.generator.avg, self.generator.avg_inp, self.generator.zpredsum], feed_dict)
+               
      
                     _,_, cost, loss, sparsity_cost, bz, summary  = sess.run([train_step_enc,train_step_gen,
                                                 self.encoder.obj,
@@ -519,6 +545,12 @@ class Model(object):
                     train_loss += loss
                     train_sparsity_cost += sparsity_cost
                     p1 += np.sum(bz*mask) / (np.sum(mask)+1e-8)
+                    
+                    if True:
+                        print "\r{}/{} {:.5f}       ".format(i+1,N,p1/(i+1))
+                        print 'cost: ', cost
+                        print 'loss: ', loss
+                        print 'sparsity cost: ', sparsity_cost
                     
                 curr_train_avg_cost = train_cost/N
                 

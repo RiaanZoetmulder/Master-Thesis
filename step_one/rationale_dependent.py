@@ -32,6 +32,7 @@ def main():
 
     if args.train:
         with tf.Graph().as_default() as g: 
+            tf.set_random_seed(2345)
             with tf.Session() as sess:
                 # initialize Model
                 #TODO: create encoder class in model

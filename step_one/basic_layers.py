@@ -12,7 +12,7 @@ def Layer(x, n_classes,  hasbias = True, scope = None, act = tf.nn.sigmoid):
     with tf.variable_scope(scope or 'output_layer') as scope:
         W = tf.get_variable('W_out', 
                             [x.get_shape()[1], n_classes],
-                            initializer = tf.contrib.layers.initializers.xavier_initializer(),
+                            initializer = tf.random_uniform_initializer(-0.05, 0.05),
                             dtype = tf.float32)
         
         tf.histogram_summary('output_enc_weights', W)
