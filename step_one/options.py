@@ -13,7 +13,7 @@ def load_arguments():
     argparser = argparse.ArgumentParser(sys.argv[0])
     argparser.add_argument("--load_rationale",
             type = str,
-            default = "",
+            default = "data/annotations.json",
             help = "path to annotated rationale data"
         )
     argparser.add_argument("--embedding",
@@ -23,7 +23,7 @@ def load_arguments():
         )
     argparser.add_argument("--save_model",
             type = str,
-            default = "",
+            default = "data/best_model_{:.4f}.ckpt",
             help = "path to save model parameters"
         )
     argparser.add_argument("--load_model",
@@ -38,7 +38,7 @@ def load_arguments():
         )
     argparser.add_argument("--dev",
             type = str,
-            default = "",
+            default = "data/reviews.aspect1.heldout.txt.gz",
             help = "path to development data"
         )
     argparser.add_argument("--test",
@@ -48,7 +48,7 @@ def load_arguments():
         )
     argparser.add_argument("--dump",
             type = str,
-            default = "",
+            default = "outputs.json",
             help = "path to dump rationale"
         )
     argparser.add_argument("--max_epochs",
@@ -89,7 +89,7 @@ def load_arguments():
     argparser.add_argument("-act", "--activation",
             type = str,
             default = "tanh",
-            help = "type of activatioin function"
+            help = "type of activation function"
         )
     argparser.add_argument("-d", "--hidden_dimension",
             type = int,
@@ -133,7 +133,7 @@ def load_arguments():
         )
     argparser.add_argument("--sparsity",
             type = float,
-            default = 0.0003
+            default = 0.0004
         )
     argparser.add_argument("--coherent",
             type = float,
@@ -141,7 +141,7 @@ def load_arguments():
         )
     argparser.add_argument("--aspect",
             type = int,
-            default = -1
+            default = 1
         )
     argparser.add_argument("--beta1",
             type = float,

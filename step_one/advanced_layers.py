@@ -45,7 +45,7 @@ class RCNNCell(RNNCell):
                                     [n_in, n_out],initializer = tf.random_uniform_initializer(-0.05, 0.05)                                  # Dims 
                                     )
             
-            tf.histogram_summary(scope or name + 'weights', W)
+            #tf.histogram_summary(scope or name + 'weights', W)
 
             
             out = tf.matmul(inputs, W)
@@ -392,9 +392,9 @@ class Z_Layer(object):
             w1 = tf.get_variable('W1', dtype = tf.float32)
             w2 = tf.get_variable('W2', dtype = tf.float32)
             bias = tf.get_variable('Bias', dtype = tf.float32)
-            self.w1sum = tf.histogram_summary('ZlayerW1', w1)
-            self.w2sum = tf.histogram_summary('ZlayerW2', w2)
-            self.biassum = tf.histogram_summary('ZlayerB', bias)
+            #self.w1sum = tf.histogram_summary('ZlayerW1', w1)
+            #self.w2sum = tf.histogram_summary('ZlayerW2', w2)
+            #self.biassum = tf.histogram_summary('ZlayerB', bias)
 
         
         # z would be ( len, batch_size)

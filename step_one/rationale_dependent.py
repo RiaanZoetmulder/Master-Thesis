@@ -5,7 +5,7 @@ rationale_dependent.py
 
 """
 from options import load_arguments
-from IO import create_embedding_layer, read_annotations, create_batches
+from IO import create_embedding_layer, read_annotations, create_batches, read_rationales
 import tensorflow as tf
 
 from models import Model
@@ -27,6 +27,15 @@ def main():
         train_x, train_y = read_annotations(args.train)
         train_x = [ embed_layer.map_to_ids(x)[:max_len] for x in train_x ]
                    
+    if args.dev:      
+        dev_x, dev_y = read_annotations(args.dev)
+        dev_x = [ embed_layer.map_to_ids(x)[:max_len] for x in dev_x ]
+    
+    if args.load_rationale:
+        rationale_data = read_rationales(args.load_rationale)
+        for x in rationale_data:
+            x["xids"] = embed_layer.map_to_ids(x["x"])
+                   
     # TODO: create development and test sets and rationale stuff
             
 
@@ -46,7 +55,11 @@ def main():
                 
                 # added this for testing
                 # TODO: Remove later
-                model.train((train_x, train_y),None, None, None, sess) 
+                model.train((train_x, train_y),
+                            (dev_x, dev_y) if args.dev else None,
+                            None,
+                            rationale_data if args.load_rationale else None,
+                            sess) 
             
             '''
             train_batches_x, train_batches_y = create_batches(

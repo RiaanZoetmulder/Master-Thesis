@@ -19,7 +19,7 @@ import numpy as np
 import sys
 import gzip
 import random
-
+import json
 
 #####################
 # Code from Tau lei #
@@ -96,12 +96,13 @@ def read_annotations(path):
             y = np.asarray([ float(v) for v in y ])
             data_x.append(x)
             data_y.append(y)
-    say("{} examples loaded from {}\n".format(
+    
+    print "{} examples loaded from {}\n".format(
             len(data_x), path
-        ))
-    say("max text length: {}\n".format(
+        )
+    print "max text length: {}\n".format(
         max(len(x) for x in data_x)
-    ))
+    )
     return data_x, data_y
     
     
@@ -284,3 +285,14 @@ def create_embedding_layer(path):
             fix_init_embs = False
         )
     return embedding_layer
+    
+def read_rationales(path):
+    data = [ ]
+    fopen = gzip.open if path.endswith(".gz") else open
+    with fopen(path) as fin:
+        for line in fin:
+            item = json.loads(line)
+            data.append(item)
+    return data
+
+

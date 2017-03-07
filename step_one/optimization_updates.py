@@ -21,12 +21,26 @@ def create_optimization_updates(cost, params = None, method = 'sgd',
     
     if method == 'sgd':
         opt = tf.train.GradientDescentOptimizer(learning_rate = lr).minimize(cost)
+        gnorms = None
     elif method == 'adadelta':
         opt = tf.train.AdadeltaOptimizer(learning_rate = lr, rho = rho).mimimze(cost)
+        gnorms = None
     elif method == 'adagrad':
         opt = tf.train.AdagradOptimizer(learning_rate = lr).minimize(cost)
+        gnorms = None
     elif method =='adam':
-        opt = tf.train.AdamOptimizer(learning_rate = lr, beta1 = beta1, beta2= beta2).minimize(cost)
-    
-    return opt
         
+        # opt = tf.train.AdamOptimizer(learning_rate = lr, beta1 = beta1, beta2= beta2).minimize(cost)
+        opt_uncl = tf.train.AdamOptimizer(learning_rate = lr,
+                                          beta1 = beta1,
+                                          beta2= beta2)
+        
+        tvars = tf.trainable_variables()
+        grads, _ = tf.clip_by_global_norm(tf.gradients(cost, tvars), 1)
+        opt = opt_uncl.apply_gradients(zip(grads, tvars))
+        
+        gnorms = None
+
+        
+    
+    return opt, gnorms

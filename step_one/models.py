@@ -12,6 +12,7 @@ import time
 from optimization_updates import create_optimization_updates
 from IO import create_batches
 import numpy as np
+import json
 
 ###############################
 #######    Generator  #########
@@ -39,10 +40,11 @@ class Generator(object):
         # embedding placeholder is 
         self.x = x = tf.placeholder(tf.int64, [None, self.args.max_len], name='input_placeholder')  # None, 256
         self.embedding_placeholder = embedding_placeholder = tf.placeholder(tf.float32, 
-                                                                            [self.vocab_size,
+                                                                           [self.vocab_size,
                                                                              self.embedding_dim]) # about 140000, 200
         self.dropout = dropout = tf.placeholder(tf.float32, name='dropout_rate')                                 # scalar dropout 
         self.training = training = tf.placeholder(tf.bool, name = 'training')
+        self.lr = tf.placeholder(tf.float32, name = 'lr')
         
         with tf.variable_scope("Generator"):
             # create variable for embeddings
@@ -66,7 +68,6 @@ class Generator(object):
             activation = self.ACTIVATION_DICT[self.args.activation]
             
             # TODO: implement layer type for experiments.. Perhaps not necessary
-            
             with tf.name_scope('First_RCNN_Layers'): 
                 # layer list
                 self.layers = []
@@ -87,13 +88,7 @@ class Generator(object):
                 
                 self.masks = masks
                 
-                
-                
-                # apply dropout depending on whether training or not
-                #inputs = tf.cond(training,
-                #                 lambda: tf.nn.dropout(rnn_inputs, dropout), 
-                #                 lambda: rnn_inputs, name='dropout_input')
-                
+                # dropout
                 inputs = tf.nn.dropout(rnn_inputs, dropout)
                 
                 # reverse sentences
@@ -156,8 +151,6 @@ class Generator(object):
                     probs = self.probs= output_layer.forward_all(h_concat, zpred)
                 
                 with tf.name_scope('sigmoid_cross_entropy'):
-                    #logpz = self.logpz =  - tf.nn.sigmoid_cross_entropy_with_logits(probs, zpred) * masks
-                    
                     logpz  = (zpred*tf.log(probs) + (1.0 - zpred)* tf.log(1.0 - probs)) * masks
                 
                 logpz = self.logpz = tf.reshape(logpz,tf.shape(x), name = 'reshape_logpz')
@@ -245,26 +238,20 @@ class Encoder(object):
     
     
                 # TODO: Some stuff missing here!
-    
                 # create layers
-    
                 h_prev = gen.rnn_inputs
                 lst_states = []
-                # print 'z outside shape: ', z.get_shape()
-                # print 'zero_state outside shape: ', zero_state.get_shape()
-                # print 'embs: ', embs.get_shape()
                 layers_enc = []
                 for idx, layer in enumerate(layers):
                     
                     h_temp = tf.scan(layer, (h_prev, z), initializer = zero_states[idx])
                     
                     if len(h_temp.get_shape())>1:
-                        
                         layers_enc.append(h_temp[:,:,layer._order*layer._num_units:])
                     else:
                         layers_enc.append(h_temp[:,layer._order*layer._num_units:])
                         
-                    # a bug might occur here because you are using the same names for hnext t and t+1 
+                    # for the old version that used dynamic_rnn and not scan 
                     '''
                     layers_enc.append(
                                       tf.nn.dynamic_rnn(layer,
@@ -292,7 +279,7 @@ class Encoder(object):
                                  lambda: layers_enc[idx], name='dropout_h_next')
     
                 # select whether to use all of them or not.
-                if args.use_all:
+                if use_all:
                     size = depth * n_d
     
                     # batch * size (i.e. n_d*depth)
@@ -306,19 +293,15 @@ class Encoder(object):
                                  lambda: tf.nn.dropout(h_final, dropout), 
                                  lambda: h_final, name='dropout_h_next')
 
-
-            #print h_final.get_shape()
-            # implement final layer
+                
+            # output layer encoder
             
             with tf.name_scope('output_layer'):
                 preds = self.preds = Layer(h_final, self.nclasses)
                 
-                tf.histogram_summary('encoder_output', h_final)
-
-            #print 'preds: ', preds.get_shape()
+                #tf.histogram_summary('encoder_output', h_final)
             
             with tf.name_scope('error_functions_encoder'):
-                
                 
                 loss_mat = self.loss_mat = (preds-y)**2 # batch
                 
@@ -344,7 +327,6 @@ class Encoder(object):
     
     
                 coherent_factor = args.sparsity * args.coherent
-                # total loss
                 loss = self.loss = tf.reduce_mean(loss_vec)
     
                 # calculate the sparsity cost
@@ -353,12 +335,12 @@ class Encoder(object):
     
                 # loss function as mentioned in the paper
                 cost_vec = loss_vec + zsum * args.sparsity + zdiff * coherent_factor
-    
                 self.cost_logpz = cost_logpz = tf.reduce_mean(cost_vec * tf.reduce_sum(logpz, 0))
                 self.obj = tf.reduce_mean(cost_vec)
     
-                variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='Encoder')
                 
+                # count the parameters in the encoder
+                variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='Encoder')
                 total_parameters = 0
                 for variable in variables:
                     sh = variable.get_shape()
@@ -376,11 +358,24 @@ class Encoder(object):
                 # if 'bias' not in v.name 
                 self.loss_l2_g = gen.L2_loss
                 # generator and encoder loss
-                self.cost_g = cost_logpz * 10 + gen.L2_loss
-                self.cost_e = loss * 10 + lossL2
+                
+                with tf.name_scope('total_cost_functions'):
+                    self.cost_g = cost_logpz * 10 + gen.L2_loss
+                    self.cost_e = loss * 10 + lossL2
+                    self.tlg = tf.scalar_summary('total_cost_generator', self.cost_g)
+                    self.tle = tf.scalar_summary('total_cost_encoder', self.cost_e)
+                
+                
+                    # scalar summaries
+                
+                    self.l2g = tf.scalar_summary('L2_loss_generator', gen.L2_loss)
+                
+                    self.l2e = tf.scalar_summary('L2_loss_encoder', lossL2)
+                    self.lg = tf.scalar_summary('cost_logpz_x10', cost_logpz * 10)
+                    self.le = tf.scalar_summary('loss_encoder', loss * 10)
+                
                 
                 print 'Fully Initialized!'
-# TODO: Finish the model
 
 ###############################
 #######     Model     #########
@@ -425,17 +420,29 @@ class Model(object):
         padding_id= self.generator.padding_id
         
         if dev is not None:
-            # TODO: Implement development set
-            raise NotImplemented 
+            
+            dev_batches_x, dev_batches_y = create_batches(
+                            dev[0], dev[1], args.batch, padding_id
+                        )
             
         if test is not None:
-            # TODO: Implement testing later
-            raise NotImplemented 
+            
+            test_batches_x, test_batches_y = create_batches(
+                            test[0], test[1], args.batch, padding_id
+                        ) 
             
         if rationale_data is not None:
-            # TODO: implement rationale data
-            raise NotImplemented 
             
+            valid_batches_x, valid_batches_y = create_batches(
+                    [ u["xids"] for u in rationale_data ],
+                    [ u["y"] for u in rationale_data ],
+                    args.batch,
+                    padding_id,
+                    sort = False
+                )
+
+            
+        
         start_time = time.time()
         
         train_batches_x, train_batches_y = create_batches(
@@ -445,33 +452,37 @@ class Model(object):
         print 'Time to create batches: %f.2' % (time.time()-start_time)
         
         #args.learning = 'sgd'
-        train_step_enc = create_optimization_updates(self.encoder.cost_e,
+        train_step_enc, enorm = create_optimization_updates(self.encoder.cost_e,
                                                     method= args.learning,
                                                     beta1 = args.beta1,
                                                     beta2 = args.beta2,
-                                                    lr = args.learning_rate)
+                                                    lr = self.generator.lr)
         
-        train_step_gen = create_optimization_updates(self.encoder.cost_g,
+        train_step_gen, gnorm = create_optimization_updates(self.encoder.cost_g,
                                                     method= args.learning,
                                                     beta1 = args.beta1,
                                                     beta2 = args.beta2,
-                                                    lr = args.learning_rate)
+                                                    lr = self.generator.lr)
+        le, lg, tle, tlg, l2e, l2g = self.encoder.le, self.encoder.lg, \
+                                        self.encoder.tle, self.encoder.tlg, \
+                                        self.encoder.l2e, self.encoder.l2g
         
-        
-        merged = tf.merge_all_summaries()
+        #merged = tf.merge_all_summaries()
+        self.merged = merged = tf.merge_summary([le, lg, tle, tlg, l2e, l2g])
         
         init = tf.initialize_all_variables()
         
         train_writer = tf.train.SummaryWriter( 'train', sess.graph)
+        eval_writer = tf.train.SummaryWriter( 'eval', sess.graph)
+        
+        saver = tf.train.Saver()
         
         sess.run(init)
         
         
         # TODO: initialize training loop here...
-        eval_period = args.eval_period
         unchanged = 0
         best_dev = 1e+2
-        best_dev_e = 1e+2
         last_train_avg_cost = None
         last_dev_avg_cost = None
         tolerance = 0.10 + 1e-3
@@ -487,8 +498,6 @@ class Model(object):
 
             more = True
             
-            # TODO: implement learning rate decay
-            
             
             while more:
                 
@@ -503,16 +512,14 @@ class Model(object):
                 for i in xrange(N):
                     
                     # notify user for elapsed time
-                    #if (i+1)%10 ==0:
-                    
-                    
+                    if (i+1)%10 == 0:
+                        print "\r{}/{} {:.5f}       ".format(i+1,N,p1/(i+1))
+                        
                     # training batches for this round
                     bx, by = train_batches_x[i], train_batches_y[i]
                     
                     mask = (bx != padding_id)
                     
-                    
-                    # TODO: figure out why i get a shape mismatch!
                     if bx.shape[1] != 256:
                         print 'shape of x: ', bx.shape
                         continue 
@@ -523,19 +530,22 @@ class Model(object):
                                  self.y : by, 
                                  self.generator.embedding_placeholder: self.embedding_layer.params[0], 
                                  self.generator.dropout:1.0 -  args.dropout, 
-                                 self.generator.training: True}
+                                 self.generator.training: True,
+                                 self.generator.lr: self.args.learning_rate}
                                  
                     #losse, lossg, logpz, masks, probs, avg, inp_avg, zpredsum= sess.run([self.encoder.loss_l2_e, self.encoder.loss_l2_g, self.generator.logpz, self.generator.masks, self.generator.probs, self.generator.avg, self.generator.avg_inp, self.generator.zpredsum], feed_dict)
                
-     
+                    
+                    
                     _,_, cost, loss, sparsity_cost, bz, summary  = sess.run([train_step_enc,train_step_gen,
                                                 self.encoder.obj,
                                                 self.encoder.loss,
                                                 self.encoder.sparsity_cost,
                                                 self.z, merged], 
                                                 feed_dict)
+                        
+
                     
-                    train_writer.add_summary(summary, i)
                     
                     
                     
@@ -546,20 +556,225 @@ class Model(object):
                     train_sparsity_cost += sparsity_cost
                     p1 += np.sum(bz*mask) / (np.sum(mask)+1e-8)
                     
-                    if True:
-                        print "\r{}/{} {:.5f}       ".format(i+1,N,p1/(i+1))
-                        print 'cost: ', cost
-                        print 'loss: ', loss
-                        print 'sparsity cost: ', sparsity_cost
                     
-                curr_train_avg_cost = train_cost/N
+                train_writer.add_summary(summary, epoch)
+                    
+             
+                cur_train_avg_cost = train_cost/N
                 
                 
-                print 'train Average Cost:', curr_train_avg_cost
                 more = False
+                if dev:
+                    # development set stuff
+                    dev_obj, dev_loss, dev_diff, dev_p1 = self.evaluate_data(
+                            dev_batches_x, dev_batches_y, sess, epoch, merged, eval_writer)
+                    cur_dev_avg_cost = dev_obj
                     
+                if args.decay_lr and last_train_avg_cost is not None:
+                    # report on training cost and development cost
+                    if cur_train_avg_cost > last_train_avg_cost*(1+tolerance):
+                        more = True
+                        print "\nTrain cost {} --> {}\n".format(
+                                last_train_avg_cost, cur_train_avg_cost
+                            )
+                    if dev and cur_dev_avg_cost > last_dev_avg_cost*(1+tolerance):
+                        more = True
+                        print "\nDev cost {} --> {}\n".format(
+                                last_dev_avg_cost, cur_dev_avg_cost
+                            )
+                if more:
+                    self.args.learning_rate = self.args.learning_rate*0.5
+                    print ("Decrease learning rate to {}\n".format(float(self.args.learning_rate)))
+                    
+                    continue
+                    
+                last_train_avg_cost = cur_train_avg_cost
+                if dev: last_dev_avg_cost = cur_dev_avg_cost
                 
-        #TODO: contemplate whether you want to get the norms of the matrices
+                print '\n'
+                print  ("Generator Epoch {:.2f}  costg={:.4f}  scost={:.4f}  lossg={:.4f}  " +
+                    "p[1]={:.2f} \t[{:.2f}m / {:.2f}m]\n").format(
+                        epoch+(i+1.0)/N,
+                        train_cost / N,
+                        train_sparsity_cost / N,
+                        train_loss / N,
+                        p1 / N,
+                        (time.time()-start_time)/60.0,
+                        (time.time()-start_time)/60.0/(i+1)*N
+                    )
+
+                    
+                    
+                if dev:
+                    if dev_obj < best_dev:
+                        best_dev = dev_obj
+                        unchanged = 0
+                        if args.dump and rationale_data:
+                            # implement dump rationales
+                            self.dump_rationales(args.dump, valid_batches_x, valid_batches_y,
+                                        sess)
+
+                        if args.save_model:
+                            
+                            # TODO: implement this
+                            print 'Saving Model: dev_obj @ {:.4f}'.format(dev_obj)
+                            saver.save(sess, args.save_model.format(dev_obj))
+
+                    print ("\tsampling devg={:.4f}  mseg={:.4f}  avg_diffg={:.4f}" +
+                                "  p[1]g={:.2f}  best_dev={:.4f}\n").format(
+                        dev_obj,
+                        dev_loss,
+                        dev_diff,
+                        dev_p1,
+                        best_dev
+                    )
+
+                    if rationale_data is not None:
+                        r_mse, r_p1, r_prec1, r_prec2 = self.evaluate_rationale(
+                                rationale_data, valid_batches_x,
+                                valid_batches_y, sess)
+                        
+                        print ("\trationale mser={:.4f}  p[1]r={:.2f}  prec1={:.4f}" +
+                                    "  prec2={:.4f}\n").format(
+                                r_mse,
+                                r_p1,
+                                r_prec1,
+                                r_prec2
+                        )
+
+                    
+    def evaluate_data(self, batches_x, batches_y, sess, epoch, merged, eval_writer):
+            
+        padding_id = self.embedding_layer.vocab_map["<padding>"]
+        tot_obj, tot_mse, tot_diff, p1 = 0.0, 0.0, 0.0, 0.0
+        for bx, by in zip(batches_x, batches_y):
+            
+            if bx.shape[1] != 256:
+                print 'shape of eval x: ', bx.shape
+                continue 
+            feed_dict = {
+                         self.x: bx,
+                         self.y: by, 
+                         self.generator.embedding_placeholder: self.embedding_layer.params[0], 
+                         self.generator.dropout:1.0, 
+                         self.generator.training:False, 
+                         self.generator.lr:self.args.learning_rate
+                         }
+               
+            mask = bx != padding_id
+            
+            
+            bz, o, e, d, summary = sess.run([self.z, self.encoder.obj,
+                                    self.encoder.loss, self.encoder.pred_diff, self.merged],
+                                    feed_dict = feed_dict)
+            p1 += np.sum(bz*mask) / (np.sum(mask) + 1e-8)
+            tot_obj += o
+            tot_mse += e
+            tot_diff += d
+            
+        eval_writer.add_summary(summary, epoch)
         
+        n = len(batches_x)
+        return tot_obj/n, tot_mse/n, tot_diff/n, p1/n
         
+    
+    def dump_rationales(self, path, batches_x, batches_y, sess):
+        
+        # get sampling function and eval function
+        embedding_layer = self.embedding_layer
+
+        lst = [ ]
+        for bx, by in zip(batches_x, batches_y):
+            if bx.shape[1] != 256:
+                print 'dev shape of x: ', bx.shape
+                continue 
+            
+            feed_dict = {
+                         self.x: bx,
+                         self.y : by, 
+                         self.generator.embedding_placeholder: self.embedding_layer.params[0], 
+                         self.generator.dropout:1.0,
+                         self.generator.training: False,
+                         self.generator.lr: self.args.learning_rate
+                         }
+                
+            loss_vec_r, preds_r, bz = sess.run([ self.encoder.loss_vec, 
+                                                self.encoder.preds,
+                                                self.z ], 
+                                                feed_dict = feed_dict)
+            
+            
+            assert len(loss_vec_r) == bx.shape[1]
+            
+            for loss_r, p_r, x,y,z in zip(loss_vec_r, preds_r, bx.T, by, bz.T):
+                loss_r = float(loss_r)
+                p_r, x, y, z = p_r.tolist(), x.tolist(), y.tolist(), z.tolist()
+                w = embedding_layer.map_to_words(x)
+                r = [ u if v == 1 else "__" for u,v in zip(w,z) ]
+                diff = max(y)-min(y)
+                lst.append((diff, loss_r, r, w, x, y, z, p_r))
+
+        #lst = sorted(lst, key=lambda x: (len(x[3]), x[2]))
+        with open(path,"w") as fout:
+            for diff, loss_r, r, w, x, y, z, p_r in lst:
+                fout.write( json.dumps( { "diff": diff,
+                                          "loss_r": loss_r,
+                                          "rationale": " ".join(r),
+                                          "text": " ".join(w),
+                                          "x": x,
+                                          "z": z,
+                                          "y": y,
+                                          "p_r": p_r } ) + "\n" )
+                
+                
+    def evaluate_rationale(self, reviews, batches_x, batches_y,sess):
+        args = self.args
+        padding_id = self.embedding_layer.vocab_map["<padding>"]
+        aspect = str(args.aspect)
+        
+        p1, tot_mse, tot_prec1, tot_prec2 = 0.0, 0.0, 0.0, 0.0
+        tot_z, tot_n = 1e-10, 1e-10
+        cnt = 0
+        for bx, by in zip(batches_x, batches_y):
+            mask = bx != padding_id
+            
+            if bx.shape[1] != 256:
+                print 'shape of x: ', bx.shape
+                continue 
+            feed_dict = {
+                         self.x: bx,
+                         self.y : by, 
+                         self.generator.embedding_placeholder: self.embedding_layer.params[0], 
+                         self.generator.dropout:1.0, 
+                         self.generator.training: False, 
+                         self.generator.lr: self.args.learning_rate
+                         }
+                         
+                         
+            
+            bz, o, e, d = sess.run([self.z, self.encoder.obj,
+                                    self.encoder.loss, self.encoder.pred_diff],
+                                    feed_dict = feed_dict)
+            
+           
+            tot_mse += e
+            p1 += np.sum(bz*mask)/(np.sum(mask) + 1e-8)
+            if args.aspect >= 0:
+                
+                for z,m in zip(bz.T, mask.T):
+                    z = [ vz for vz,vm in zip(z,m) if vm ]
+                    assert len(z) == len(reviews[cnt]["xids"])
+                    truez_intvals = reviews[cnt][aspect]
+                    prec = sum( 1 for i, zi in enumerate(z) if zi>0 and \
+                                any(i>=u[0] and i<u[1] for u in truez_intvals) )
+                    nz = sum(z)
+                    if nz > 0:
+                        tot_prec1 += prec/(nz+0.0)
+                        tot_n += 1
+                    tot_prec2 += prec
+                    tot_z += nz
+                    cnt += 1
+        #assert cnt == len(reviews)
+        n = len(batches_x)
+        return tot_mse/n, p1/n, tot_prec1/tot_n, tot_prec2/tot_z
         
