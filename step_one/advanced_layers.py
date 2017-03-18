@@ -18,10 +18,30 @@ from tensorflow.python.ops.math_ops import tanh
 from tensorflow.python.ops import variable_scope as vs
 from tensorflow.python.ops import array_ops
 from tensorflow.python.util import nest
+from basic_layers import BasicRNNCell, _linear
+
+tf.set_random_seed(2345)
 
 ###############################
 #######    RCNNCell   #########
 ###############################
+
+def ln(tensor, scope = None, epsilon = 1e-5):
+    """ Layer normalizes a 2D tensor along its second axis """
+    assert(len(tensor.get_shape()) == 2)
+    m, v = tf.nn.moments(tensor, [1], keep_dims=True)
+    if not isinstance(scope, str):
+        scope = ''
+    with tf.variable_scope(scope + 'layer_norm'):
+        scale = tf.get_variable('scale',
+                                shape=[tensor.get_shape()[1]],
+                                initializer=tf.constant_initializer(1))
+        shift = tf.get_variable('shift',
+                                shape=[tensor.get_shape()[1]],
+                                initializer=tf.constant_initializer(0))
+    LN_initial = (tensor - m) / tf.sqrt(v + epsilon)
+
+    return LN_initial * scale + shift
 
 class RCNNCell(RNNCell):
     '''
@@ -42,7 +62,7 @@ class RCNNCell(RNNCell):
         with vs.variable_scope(scope or name, reuse = reuse) as scop:
             
             W = tf.get_variable('weights' + str(order) ,                            # naming
-                                    [n_in, n_out],initializer = tf.random_uniform_initializer(-0.05, 0.05)                                  # Dims 
+                                    [n_in, n_out],initializer = tf.random_uniform_initializer(-0.05, 0.05, seed = 2345)                                  # Dims 
                                     )
             
             #tf.histogram_summary(scope or name + 'weights', W)
@@ -69,9 +89,11 @@ class RCNNCell(RNNCell):
                  activation = tanh, 
                  mode = 1,
                  has_outgate= False,
-                 state_size = 100,
-                 idx = 1             # custom  id, 1 by default
+                 state_size = 100,      
+                 idx = 1,              # custom  id, 1 by default
+                 use_ln = False        # use layer normalization
                  ):
+        
         '''
         RCNN
         Inputs
@@ -102,6 +124,7 @@ class RCNNCell(RNNCell):
         self._has_outgate = has_outgate
         
         self.reuse = None
+        self.useln = use_ln
 
     @property
     def state_size(self):
@@ -157,7 +180,7 @@ class RCNNCell(RNNCell):
                             [self._num_units,],
                             initializer = tf.constant_initializer(0.0),  dtype = tf.float32)
             
-            forget_cell = tf.nn.rnn_cell.BasicRNNCell(self._num_units, activation = tf.nn.sigmoid)
+            forget_cell = BasicRNNCell(self._num_units, activation = tf.nn.sigmoid)
             forget_t = forget_cell(inputs, ht_m1)[0]
             
         lst = [ ]   
@@ -190,19 +213,27 @@ class RCNNCell(RNNCell):
             
             else:
                 c_i_t = forget_t * c_i_tm1 + (1.0-forget_t) * (in_i_t + c_im1_tm1)
-                
-            lst.append(c_i_t)
+            
+            # whether to use layer normalization
+            if self.useln:
+                lst.append(ln(c_i_t, scope = 'cit' + str(self._idx) + str(i)+ '/'))
+            else:
+                lst.append(c_i_t)
+            
             c_im1_tm1 = c_i_tm1
             c_im1_t = c_i_t
         
         
         # Use an outgate or not!
         if not self._has_outgate:
-            h_t = self._activation(c_i_t + bias, name = 'no_outgate')
+            if self.useln:
+                h_t = ln(self._activation(c_i_t + bias, name = 'no_outgate'), scope = 'ht_' + str(self._idx))
+            else:
+                h_t = self._activation(c_i_t + bias, name = 'no_outgate')
             
         else:
             with vs.variable_scope(scope or self.name, reuse = self.reuse ) as var_scope:
-                out_t = tf.nn.rnn_cell._linear([inputs, ht_m1],
+                out_t = _linear([inputs, ht_m1],
                                                  self._num_units,
                                                 True, 1.0,
                                                  scope = scope or "RCNN_cell" + '_%s'% (str(self._idx) + 'out_t'))
@@ -313,6 +344,28 @@ class MultiRNNCell(RNNCell):
 ###############################
 #######    Z-Layer    #########
 ###############################
+def stable_sigmoid(x):
+    '''
+    Numerically stable sigmoid function
+    '''
+    
+    print 'xshape: ', x.get_shape()
+    x = tf.squeeze(x, squeeze_dims= [2])
+    print 'xshape squeeze: ', x.get_shape()
+    def softmax(x):
+        return tf.ones_like(x, tf.float32) /(tf.ones_like(x, tf.float32)+ tf.exp(-x))
+        
+    def softplus(x):
+        return tf.exp(x)/(tf.ones_like(x, tf.float32) + tf.exp(x))
+    
+    sftmx = softmax(x)
+    sftpls = softplus(x)
+    
+    condition = tf.greater_equal(x, tf.zeros_like(x, tf.float32))
+    print 'shape condition:', condition.get_shape()
+    val = tf.select(condition, sftmx, sftpls)
+    print 'shape val:', val.get_shape()
+    return tf.expand_dims(val, 2)
 
 class Z_Layer(object):
     
@@ -340,9 +393,9 @@ class Z_Layer(object):
         
         with vs.variable_scope('ZLayerWeights') as var_scope: 
             w1 = tf.get_variable('W1', [n_in,1], dtype = tf.float32, 
-                                 initializer = tf.random_uniform_initializer(-0.05, 0.05))
+                                 initializer = tf.random_uniform_initializer(-0.05, 0.05, seed = 2345))
             w2 = tf.get_variable('W2', [n_hidden,1], dtype = tf.float32, 
-                                 initializer = tf.random_uniform_initializer(-0.05, 0.05))
+                                 initializer = tf.random_uniform_initializer(-0.05, 0.05, seed = 2345))
             bias = tf.get_variable('Bias', 
                                    [1], 
                                    initializer=tf.constant_initializer(0.0), 
@@ -374,12 +427,15 @@ class Z_Layer(object):
                     tf.matmul(h_tm1[:,-self.n_hidden:], w2) +
                     bias, name = 'pzt_sigmoid'
                 )
+        logits = tf.matmul(x_t, w1) + \
+                    tf.matmul(h_tm1[:,-self.n_hidden:], w2) +\
+                    bias
         
         xz_t =  tf.concat(1, [x_t, tf.reshape(z_t, [-1,1])], name = 'xzt_concat')
         
         rnn_outputs, final_state = self.rlayer( xz_t,  h_tm1)
         
-        return final_state, pz_t
+        return final_state, pz_t, logits
     
     
     def forward_all(self, x, z):
@@ -415,7 +471,12 @@ class Z_Layer(object):
             
             # here too changed the dynamic rnn to scan
             htp = tf.scan(self.rlayer, xz, initializer= h_temp)
-            h = htp[:,:, self.rlayer._order * self.rlayer._num_units:]
+            if len(htp.get_shape())>1:
+            
+                h = htp[:,:, self.rlayer._order * self.rlayer._num_units:]
+            else:
+                h = htp[:, self.rlayer._order * self.rlayer._num_units:]
+                
         
         # print 'rnn_outputs shape: ', rnn_outputs.get_shape()
         #print 'h shape: ', h.get_shape()
@@ -444,19 +505,26 @@ class Z_Layer(object):
         b = tf.reshape(b_tp, [-1, hshape[1], 1])
         
         # sigmoid it
-        pz = sigmoid(a+b+bias)
+        logits = a+b+bias
+        #pz = sigmoid(logits)
+        
+        pz = sigmoid(logits)
+        print 'shape pz: ', pz.get_shape()
         
         
         pz_reshaped = tf.squeeze(pz, squeeze_dims= [2])
+        logits_reshaped = tf.squeeze(logits, squeeze_dims= [2])
         
         # return the matrix of predictions
         assert len(pz_reshaped.get_shape()) == 2
+        assert len(logits_reshaped.get_shape()) == 2
+        print 'logits_reshaped: ', logits_reshaped.get_shape() 
         
-        return pz_reshaped
+        return pz_reshaped, logits_reshaped
     
         
     # adapted version of sample
-    def sample(self, prev, x_t, seed = 214):
+    def sample(self, prev, x_t, seed = 2345):
         
         # get the appropriate values
         h_tm1 = prev[0]
@@ -479,8 +547,10 @@ class Z_Layer(object):
         pz_t = tf.squeeze(pz_t)
         
         # TODO: Changed less equal into larger equal change back if fail
-        z_t = tf.cast(tf.less_equal(tf.random_uniform(pz_t.get_shape(), dtype=tf.float32, seed=seed), pz_t),
-                      tf.float32)
+        z_t = tf.cast(tf.less_equal(tf.random_uniform(pz_t.get_shape(),
+                                                      dtype=tf.float32, seed=seed),
+                                                        pz_t),
+                                                      tf.float32)
         
         xz_t = tf.concat(1,[x_t, tf.reshape(z_t,  [-1,1])])
         
@@ -531,7 +601,7 @@ class ExtRCNNCell(RCNNCell):
         x_t, mask_t = x[0], x[1]
         hc_t  = super(ExtRCNNCell, self).__call__(hc_tm1, x_t)
         a= mask_t * hc_t 
-        b = (1.0-mask_t) * hc_tm1    
+        b = (1 - mask_t) * hc_tm1    
         hc_t = a + b
         return hc_t
 

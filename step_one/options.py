@@ -23,7 +23,7 @@ def load_arguments():
         )
     argparser.add_argument("--save_model",
             type = str,
-            default = "data/best_model_{:.4f}.ckpt",
+            default = "data/saves/best_model_{:.4f}.ckpt",
             help = "path to save model parameters"
         )
     argparser.add_argument("--load_model",
@@ -73,7 +73,7 @@ def load_arguments():
         )
     argparser.add_argument("--learning_rate",
             type = float,
-            default = 0.0005,
+            default = 0.0005,# was set to 0.0005
             help = "learning rate"
         )
     argparser.add_argument("--dropout",
@@ -133,7 +133,7 @@ def load_arguments():
         )
     argparser.add_argument("--sparsity",
             type = float,
-            default = 0.0004
+            default = 0.0003 # was set to 0.0003
         )
     argparser.add_argument("--coherent",
             type = float,

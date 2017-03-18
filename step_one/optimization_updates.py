@@ -30,14 +30,22 @@ def create_optimization_updates(cost, params = None, method = 'sgd',
         gnorms = None
     elif method =='adam':
         
-        # opt = tf.train.AdamOptimizer(learning_rate = lr, beta1 = beta1, beta2= beta2).minimize(cost)
+        #opt_uncl = tf.train.AdamOptimizer(learning_rate = lr, beta1 = beta1, beta2= beta2)
+        
         opt_uncl = tf.train.AdamOptimizer(learning_rate = lr,
-                                          beta1 = beta1,
-                                          beta2= beta2)
+                                         beta1 = beta1,
+                                         beta2= beta2).minimize(cost)
+        
+        
+        
+        opt = opt_uncl
+        '''
         
         tvars = tf.trainable_variables()
-        grads, _ = tf.clip_by_global_norm(tf.gradients(cost, tvars), 1)
+        grads, _ = tf.clip_by_global_norm(tf.gradients(cost, tvars), 5)
         opt = opt_uncl.apply_gradients(zip(grads, tvars))
+        '''
+        
         
         gnorms = None
 

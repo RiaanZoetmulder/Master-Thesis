@@ -17,7 +17,7 @@ import json
 ###############################
 #######    Generator  #########
 ###############################
-
+tf.set_random_seed(2345)
 class Generator(object):
     
     
@@ -36,7 +36,7 @@ class Generator(object):
     def ready(self):
         args = self.args
         # inputs for feed dict.
-        # x should be a matrix of word Id's, integer valued
+        # x should be a matrix of word Id's, integer valued self.args.max_len
         # embedding placeholder is 
         self.x = x = tf.placeholder(tf.int64, [None, self.args.max_len], name='input_placeholder')  # None, 256
         self.embedding_placeholder = embedding_placeholder = tf.placeholder(tf.float32, 
@@ -142,25 +142,29 @@ class Generator(object):
                 # sample a which words should be kept
                 zpred = output_layer.sample_all(h_final)
                 
+                
                 self.zpredsum = tf.reduce_sum(zpred)
+                
                 # z itself should not be updated
                 zpred = tf.stop_gradient(zpred)
         
                 # get the probabilities and log loss
                 with tf.name_scope('zlayer_forward_pass'):
-                    probs = self.probs= output_layer.forward_all(h_concat, zpred)
+                    probs, logits = output_layer.forward_all(h_concat, zpred)
                 
                 with tf.name_scope('sigmoid_cross_entropy'):
-                    logpz  = (zpred*tf.log(probs) + (1.0 - zpred)* tf.log(1.0 - probs)) * masks
+                    logpz = (-logits*(1-zpred)-tf.nn.softplus(-logits)) * masks
+                    #logpz  = (zpred*tf.log(probs + 1e-6) + (1.0 - zpred)* tf.log(1.0 - probs + 1e-6)) * masks
+                    #logpz = -tf.nn.sigmoid_cross_entropy_with_logits(zpred, logits) * masks
                 
                 logpz = self.logpz = tf.reshape(logpz,tf.shape(x), name = 'reshape_logpz')
                 probs = self.probs = tf.reshape(probs, tf.shape(x), name = 'probs_reshape')
                 
                 # assign z
                 z = self.zpred = zpred
+                self.ztotsum = tf.reduce_sum(zpred)
             
                 # sum z
-                
                 with tf.name_scope('operations_on_z'):
                     self.zsum = tf.reduce_sum(z, 0, name = 'zsum')
                     self.zdiff = tf.reduce_sum(tf.abs(z[1:]-z[:-1]),  0, name = 'zdiff')
@@ -174,7 +178,16 @@ class Generator(object):
                 for dim in sh:
                     variable_parametes *= dim.value
                 total_parameters += variable_parametes
+            
             print 'total #  Generator parameters:', total_parameters
+            
+            print 'trainable variables: \n'
+            for x in tf.trainable_variables():
+                print x.name
+            
+            string= 'Generator/RCNN_Feed_Forward_Layer_0_0/weights0:0'
+            self.weights = [v for v in tf.trainable_variables() if v.name == string][0]
+            
             
             # get l2 cost for all parameters
             varls = tf.trainable_variables() 
@@ -207,11 +220,13 @@ class Encoder(object):
             # variables from the generator
             dropout = gen.dropout
             x = gen.x
+            
             # removed z here. can add back if you want to
             z = tf.expand_dims(gen.zpred, 2)
 
             # input placeholder
-            y = self.y = tf.placeholder(tf.float32, [None, self.nclasses], name= 'target_values')
+            y = self.y = tf.placeholder(tf.float32, [None, self.nclasses],
+                                        name= 'target_values')
 
             n_d = args.hidden_dimension
             n_e = emb_layer.n_d
@@ -318,13 +333,17 @@ class Encoder(object):
     
                     loss_vec = loss_mat[:,args.aspect]
     
-                self.loss_vec = loss_vec
-    
+                # self.loss_vec = loss_vec
+                self.loss_vec = tf.check_numerics(loss_vec, 'loss_vec has Nan or Inf values')
+                
                 # get values from the generator
-                zsum = gen.zsum
-                zdiff = gen.zdiff
-                logpz = gen.logpz
-    
+                self.zsum = zsum = gen.zsum
+                self.zdiff = zdiff = gen.zdiff
+                self.logpz = logpz = gen.logpz
+                
+                zsum = tf.check_numerics(zsum, 'Zsum has Nan or Inf values')
+                zdiff = tf.check_numerics(zdiff, 'Zdiff has Nan or Inf values')
+                logpz = tf.check_numerics(logpz, 'logpz has Nan or Inf values')
     
                 coherent_factor = args.sparsity * args.coherent
                 loss = self.loss = tf.reduce_mean(loss_vec)
@@ -386,6 +405,8 @@ class Model(object):
         self.args = args
         self.embedding_layer = embedding_layer
         self.nclasses = nclasses
+        
+        self.obj_array = []
 
 
     def ready(self):
@@ -402,6 +423,7 @@ class Model(object):
         
     
     def train(self, train, dev, test, rationale_data, sess):
+        
         '''
         Function to do training procedure, use args to set which optimizer
         and what parameters.
@@ -512,8 +534,9 @@ class Model(object):
                 for i in xrange(N):
                     
                     # notify user for elapsed time
-                    if (i+1)%10 == 0:
+                    if (i+1)%50 == 0:
                         print "\r{}/{} {:.5f}       ".format(i+1,N,p1/(i+1))
+                        print 'ztotsum = ', ztotsum
                         
                     # training batches for this round
                     bx, by = train_batches_x[i], train_batches_y[i]
@@ -521,8 +544,8 @@ class Model(object):
                     mask = (bx != padding_id)
                     
                     if bx.shape[1] != 256:
-                        print 'shape of x: ', bx.shape
-                        continue 
+                        bx = bx.T
+                        continue
                     
     
                     
@@ -534,27 +557,27 @@ class Model(object):
                                  self.generator.lr: self.args.learning_rate}
                                  
                     #losse, lossg, logpz, masks, probs, avg, inp_avg, zpredsum= sess.run([self.encoder.loss_l2_e, self.encoder.loss_l2_g, self.generator.logpz, self.generator.masks, self.generator.probs, self.generator.avg, self.generator.avg_inp, self.generator.zpredsum], feed_dict)
-               
-                    
-                    
-                    _,_, cost, loss, sparsity_cost, bz, summary  = sess.run([train_step_enc,train_step_gen,
+                    _,_,  cost, loss, sparsity_cost, bz, summary, ztotsum  = sess.run([train_step_enc, train_step_gen,
                                                 self.encoder.obj,
                                                 self.encoder.loss,
                                                 self.encoder.sparsity_cost,
-                                                self.z, merged], 
+                                                self.z, merged, self.generator.ztotsum], 
                                                 feed_dict)
-                        
-
                     
-                    
-                    
+                    #print 'zpredsum = ', ztotsum
                     
                     k = len(by)
                     processed += k
                     train_cost += cost
                     train_loss += loss
                     train_sparsity_cost += sparsity_cost
-                    p1 += np.sum(bz*mask) / (np.sum(mask)+1e-8)
+                    temp = np.sum(bz*mask) / (np.sum(mask)+1e-8)
+                    p1 += temp
+                    
+                    if temp ==0 or p1 ==0:
+                        print 'p1 zero in training loop'
+                    
+                    
                     
                     
                 train_writer.add_summary(summary, epoch)
@@ -567,10 +590,13 @@ class Model(object):
                 if dev:
                     # development set stuff
                     dev_obj, dev_loss, dev_diff, dev_p1 = self.evaluate_data(
-                            dev_batches_x, dev_batches_y, sess, epoch, merged, eval_writer)
+                            dev_batches_x, dev_batches_y, sess, epoch, merged,
+                            eval_writer)
+                    
                     cur_dev_avg_cost = dev_obj
                     
                 if args.decay_lr and last_train_avg_cost is not None:
+                    
                     # report on training cost and development cost
                     if cur_train_avg_cost > last_train_avg_cost*(1+tolerance):
                         more = True
@@ -603,13 +629,17 @@ class Model(object):
                         (time.time()-start_time)/60.0/(i+1)*N
                     )
 
-                    
+                self.obj_array.append(train_loss / N)
+                
+                print 'Obj_array: \n'
+                print self.obj_array
                     
                 if dev:
                     if dev_obj < best_dev:
                         best_dev = dev_obj
                         unchanged = 0
                         if args.dump and rationale_data:
+                            
                             # implement dump rationales
                             self.dump_rationales(args.dump, valid_batches_x, valid_batches_y,
                                         sess)
@@ -661,18 +691,20 @@ class Model(object):
                          self.generator.lr:self.args.learning_rate
                          }
                
-            mask = bx != padding_id
+            mask = (bx != padding_id)
             
             
-            bz, o, e, d, summary = sess.run([self.z, self.encoder.obj,
-                                    self.encoder.loss, self.encoder.pred_diff, self.merged],
+            bz, o, e, d= sess.run([self.z, self.encoder.obj,
+                                    self.encoder.loss, self.encoder.pred_diff],
                                     feed_dict = feed_dict)
             p1 += np.sum(bz*mask) / (np.sum(mask) + 1e-8)
             tot_obj += o
             tot_mse += e
             tot_diff += d
             
-        eval_writer.add_summary(summary, epoch)
+        # eval_writer.add_summary(summary, epoch)
+        if p1 == 0:
+            print 'p1 zero in evaluate data'
         
         n = len(batches_x)
         return tot_obj/n, tot_mse/n, tot_diff/n, p1/n
@@ -759,6 +791,10 @@ class Model(object):
            
             tot_mse += e
             p1 += np.sum(bz*mask)/(np.sum(mask) + 1e-8)
+            
+            if p1 ==0:
+                print 'p1 zero in rationale loop'
+                raise NotImplementedError
             if args.aspect >= 0:
                 
                 for z,m in zip(bz.T, mask.T):
