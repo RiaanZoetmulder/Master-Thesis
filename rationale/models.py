@@ -15,6 +15,7 @@ import numpy as np
 import json
 import matplotlib 
 import matplotlib.pyplot as plt
+from notification import alert_user
 
 ###############################
 #######    Generator  #########
@@ -502,6 +503,10 @@ class Model(object):
             unchanged += 1
             if unchanged > 20: 
                 self.plot()
+                
+                if self.args.email:
+                    self.notify_user_success()
+                
                 return
             
             # Create new batches
@@ -527,6 +532,11 @@ class Model(object):
                     # notify user for elapsed time
                     if (i+1)%50 == 0:
                         print "\r{}/{} {:.5f}       ".format(i+1,N,p1/(i+1))
+                        
+                        if self.args.email and p1/(i+1) > 0.4 and epoch > 10:
+                            self.plot()
+                            self.notify_user_failure()
+                            return 
                         
                     # training batches for this round
                     bx, by = train_batches_x[i], train_batches_y[i]
@@ -688,6 +698,27 @@ class Model(object):
         plt.grid(True)
         
         plt.savefig('precision_loss.png')
+        
+        
+    def notify_user_success(self):
+        msg = 'Succesfully finished training the network. Find attached the '+ \
+        'training loss and precision plots.'
+        title = 'Algorithm Training Success!'
+        attachment = 'precision_loss.png'
+        email = self.args.email
+        password = self.args.password
+        
+        alert_user(email, password, msg, title = title, attachment = attachment)
+        
+    def notify_user_failure(self):
+        msg = 'The algorithm seems to have finished but collapsed in the mean time to all '+\
+        'zeros or ones. Sigh... come back and fix it!'
+        title = 'Algorithm Training Failure!'
+        attachment = 'precision_loss.png'
+        email = self.args.email
+        password = self.args.password
+        
+        alert_user(email, password, msg, title = title, attachment = attachment)
         
     
 

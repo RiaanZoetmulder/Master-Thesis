@@ -164,6 +164,16 @@ def load_arguments():
             type = str,
             default = 'rand_uni',
             help = "initialization of the weights: rand_uni or Xavier"
+            
+        )
+    
+    argparser.add_argument("--email",
+            type = str,
+            default = None
+        )
+    argparser.add_argument("--password",
+            type = str,
+            default = None
         )
     args = argparser.parse_args()
     return args
