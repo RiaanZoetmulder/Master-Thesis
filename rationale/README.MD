@@ -1,13 +1,18 @@
 # Rationale Code
 
 ## Results:
+Image of the graph of the network from tensorboard
+<p align="center">
+<img width=500 src="figures/graph.png">
+</p>
+
 Running this once yields the following results:
 
 The training average loss and the precision are shown in this figure, there is an issue with replication. Must set seed numbers 
 properly since there is still some source of random variation. 
 
 <p align="center">
-<img width=500 src="precision_loss.png">
+<img width=500 src="figures/precision_loss.png">
 </p>
 
 
