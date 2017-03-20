@@ -25,8 +25,8 @@ import json
 # Code from Tau lei #
 #####################
 
-default_rng = np.random.RandomState(2345)
 def random_init(size, rng=None, rng_type=None):
+    default_rng = np.random.RandomState(2345)
     if rng is None: rng = default_rng
     if rng_type is None:
         #vals = rng.standard_normal(size)

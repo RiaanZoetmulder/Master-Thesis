@@ -224,7 +224,6 @@ class Encoder(object):
             emb_layer = self.emb_layer
             args = self.args
             padding_id = emb_layer.vocab_map["<padding>"]
-            training = gen.training
 
             # variables from the generator
             dropout = gen.dropout
@@ -287,9 +286,9 @@ class Encoder(object):
                         lst_states.append(layers_enc[idx][-1])
     
                     # update next state, apply dropout
-                    h_prev = tf.cond(training,
-                                 lambda: tf.nn.dropout(layers_enc[idx], dropout), 
-                                 lambda: layers_enc[idx], name='dropout_h_next')
+                    h_prev = tf.nn.dropout(layers_enc[idx], dropout)
+                                 
+                                 
     
                 # select whether to use all of them or not.
                 if use_all:
@@ -302,9 +301,9 @@ class Encoder(object):
                     h_final = lst_states[-1]
     
                 # apply dropout to final state
-                h_final = tf.cond(training,
-                                 lambda: tf.nn.dropout(h_final, dropout), 
-                                 lambda: h_final, name='dropout_h_next')
+                h_final = tf.nn.dropout(h_final, dropout) 
+                               
+                                
 
                 
             # output layer encoder
@@ -563,8 +562,7 @@ class Model(object):
                                                 self.encoder.sparsity_cost,
                                                 self.z, merged, self.generator.ztotsum], 
                                                 feed_dict)
-                    
-                    
+
                     k = len(by)
                     processed += k
                     train_cost += cost
