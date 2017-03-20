@@ -1,6 +1,6 @@
 # Rationale Code
 
-##Results:
+## Results:
 Running this once yields the following results:
 
 The training average loss and the precision are shown in this figure, there is an issue with replication. Must set seed numbers 
