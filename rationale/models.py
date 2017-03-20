@@ -32,8 +32,10 @@ class Generator(object):
         print 'Received dictionary of vocab size %s and embedding dim %s.' % \
                     (self.vocab_size, self.embedding_dim)
             
-        self.ACTIVATION_DICT = {'tanh':lambda : tf.nn.tanh,
-                                 'sigmoid':lambda:  tf.nn.sigmoid}
+        self.ACTIVATION_DICT = {'tanh':tf.nn.tanh,
+                                 'sigmoid':tf.nn.sigmoid}
+        self.INIT_DICT = {'rand_uni':tf.random_uniform_initializer(-0.05, 0.05, seed = 2345),
+                                 'xavier':tf.contrib.layers.xavier_initializer()}
         
         
     def ready(self):
@@ -74,6 +76,7 @@ class Generator(object):
             
             # get activation
             activation = self.ACTIVATION_DICT[self.args.activation]
+            initializer = self.INIT_DICT[self.args.initialization]
             
             with tf.name_scope('First_RCNN_Layers'): 
                 
@@ -86,7 +89,7 @@ class Generator(object):
                     self.layers.append(
                         RCNNCell(n_d,
                                  idx = i,
-                                 initializer = tf.contrib.layers.xavier_initializer()
+                                 initializer = initializer
                                  )
                     )
                     
@@ -139,7 +142,8 @@ class Generator(object):
             with tf.name_scope('Zlayer') as ns:
                 
                 # creating the output layer
-                self.output_layer = output_layer = Z_Layer(h_final.get_shape()[2])
+                self.output_layer = output_layer = Z_Layer(h_final.get_shape()[2], 
+                                                           initializer = initializer)
                 
                 # sample a which words should be kept
                 zpred = output_layer.sample_all(h_final)
@@ -209,6 +213,8 @@ class Encoder(object):
         self.emb_layer = embedding_layer
         self.nclasses = nclasses
         self.gen = generator
+        self.INIT_DICT = {'rand_uni':tf.random_uniform_initializer(-0.05, 0.05, seed = 2345),
+                          'xavier':tf.contrib.layers.xavier_initializer()}
 
     def ready(self):
         with tf.variable_scope("Encoder"):
@@ -232,6 +238,8 @@ class Encoder(object):
 
             n_d = args.hidden_dimension
             n_e = emb_layer.n_d
+            
+            initializer = self.INIT_DICT[self.args.initialization]
 
             layers = self.layers = [ ]
             zero_states = self.zero_states = [ ]
@@ -248,7 +256,7 @@ class Encoder(object):
                     layers.append(
                                     ExtRCNNCell(n_d,
                                                 idx = 'ExtRCNNCell_%i'%i, 
-                                                initializer = tf.contrib.layers.xavier_initializer())
+                                                initializer = initializer)
                                  )
                     zero_states.append(
                                         layers[i].zero_state(x.get_shape()[1])
@@ -301,7 +309,7 @@ class Encoder(object):
             # output layer encoder
             with tf.name_scope('output_layer'):
                 preds = self.preds = Layer(h_final, self.nclasses,
-                                           initializer = tf.contrib.layers.xavier_initializer())
+                                           initializer = initializer)
                 
             
             with tf.name_scope('error_functions_encoder'):
@@ -492,7 +500,9 @@ class Model(object):
         for epoch in xrange(args.max_epochs):
             
             unchanged += 1
-            if unchanged > 20: return
+            if unchanged > 20: 
+                self.plot()
+                return
             
             # Create new batches
             train_batches_x, train_batches_y = create_batches(
@@ -647,33 +657,37 @@ class Model(object):
                                 r_prec2
                         )
                         self.prec_array.append((r_prec1, r_prec2))
-        self.plot()
+        
         
     def plot(self):
         
+        print 'Plotting!'
         epochs = range(len(self.obj_array))
         plt.figure(1)
         
         # loss of objective function
         plt.subplot(211)
-        plt.plot(epochs, self.obj_array)
-        plt.yscale('loss')
-        plt.xscale('epochs')
+        plt.plot(epochs, self.obj_array, label = 'loss')
+        plt.yscale('linear')
         plt.title('loss objective')
+        plt.legend(shadow=True, fancybox=True)
         plt.grid(True)
         
         # precision
         temp = zip(*self.prec_array)
-        prec1, prec2 = list(temp[0]), list(temp[0])
+        prec1, prec2 = list(temp[0]), list(temp[1])
         plt.subplot(212)
-        plt.plot(epochs, prec1, color = 'g')
-        plt.plot(epochs, prec2, color = 'r')
-        plt.yscale('precision')
-        plt.xscale('epochs')
+        plt.plot(epochs, prec1, color = 'g', label = 'prec 1')
+        plt.plot(epochs, prec2, color = 'r', label = 'prec 2')
+        plt.yscale('linear')
         plt.title('precision')
+        plt.legend(loc= 'lower right',
+                   bbox_to_anchor = [1 , 0],
+                   shadow = True,
+                   fancybox=True)
         plt.grid(True)
         
-        plt.savefig('precision+loss.png')
+        plt.savefig('precision_loss.png')
         
     
 

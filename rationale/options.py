@@ -159,5 +159,11 @@ def load_arguments():
             type = int,
             default = 1
         )
+    # added argument for initializer
+    argparser.add_argument("--initialization",
+            type = str,
+            default = 'rand_uni',
+            help = "initialization of the weights: rand_uni or Xavier"
+        )
     args = argparser.parse_args()
     return args
