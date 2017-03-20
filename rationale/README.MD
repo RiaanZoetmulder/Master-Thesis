@@ -1,7 +1,15 @@
 # Rationale Code
 
 ##Results:
-TODO
+Running this once yields the following results:
+
+The training average loss and the precision are shown in this figure, there is an issue with replication. Must set seed numbers 
+properly since there is still some source of random variation. 
+
+<p align="center">
+<img width=500 src="precision_loss.png">
+</p>
+
 
 ## Dependencies: 
 Numpy (1.10.4), Tensorflow (0.11.0rc2)
@@ -20,4 +28,6 @@ eval and train folders for tensorboard, a plot of losses and precisions and a fi
 - Training can collapse the predicted indices of the words into all 0's or all 1's Potential fixes for this include, lowering the learning rate or the lambda regularizers
 
 - The input tensors can have a shape mismatch, this doesn't appear to be a problem in the theano code,however for tf it matters. Fix: in the future hard code dimensions instead of inferring them from tensors
+
+- There is still some source of random variation. Must set the seed number properly.
 
