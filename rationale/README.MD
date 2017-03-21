@@ -36,8 +36,13 @@ Numpy (1.10.4), Tensorflow (0.11.0rc2)
 3. Put the data in the data directory
 4. run rationale_dependent.py, possibly with changed parameters if you wish!
 5. Get coffee, mow the lawn, reclaim your social life outside of the internet, come back after several hours.
-6. Check the results! Should output data/saves, where the models are stored, 
-eval and train folders for tensorboard, a plot of losses and precisions and a file with rationales.
+6. Check the results! Should output data/saves, where the models are stored, eval and train folders for tensorboard, a plot of losses and precisions and a file with rationales.
+
+Tip: If you run this command:
+
+> python rationale_dependent.py --email [youremail] --password [yourpassword]
+
+and you set your gmail to allow access for third party apps, it will send you an email with the plot once it is done!
 
 
 ## (potential) Bugs:
