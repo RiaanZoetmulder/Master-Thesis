@@ -10,10 +10,9 @@ Image of the graph of the network from tensorboard
 <img width=500 src="figures/graph.png">
 </p>
 
-Running this once yields the following results:
+Running this yields the following results:
 
-The training average loss and the precision are shown in this figure, there is an issue with replication. Must set seed numbers 
-properly since there is still some source of random variation. 
+The training average loss and the precision are shown in this figure. They seem to be similar to the one in the original paper.
 
 <p align="center">
 <img width=500 src="figures/precision_loss.png">
@@ -50,5 +49,5 @@ and you set your gmail to allow access for third party apps, it will send you an
 
 - The input tensors can have a shape mismatch, this doesn't appear to be a problem in the theano code,however for tf it matters. Fix: in the future hard code dimensions instead of inferring them from tensors
 
-- There is still some source of random variation. Must set the seed number properly.
+
 
