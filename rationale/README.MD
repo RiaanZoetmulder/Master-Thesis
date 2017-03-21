@@ -15,6 +15,13 @@ properly since there is still some source of random variation.
 <img width=500 src="figures/precision_loss.png">
 </p>
 
+### example rationales
+
+here is a cherry picked example for the aspect of smell: 
+
+> poured from a 24oz bottle into a large sniffter appearance : this pours a deep bronze amber in color . this beer has some of the best head formation and retention that i have ever seen along with lots and lots of sticky ** lacing smell : tons of piney resinous evergreen aroms abound ** in this ale . cant get enough of this beer its the ** best smelling ** harvest ale i 've ever had the pleasure of enjoying taste : huge flavor profile with lots of bitterness and only a little malt sweetness . as this beer warms up the bitterness really dominates the flavor . i 'm tasting lot of **subtle orange** aromas mouthfeel : full body beer with alot of carbonation overall : i love this beer in my opinion its serria nevada 's best beer overall . the price is unbeatable i bought my bombed for $ 3.99 . so much flavor and biting bitterness this harvest ale has no equal .
+
+
 
 ## Dependencies: 
 Numpy (1.10.4), Tensorflow (0.11.0rc2)
