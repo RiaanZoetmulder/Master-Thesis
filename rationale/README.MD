@@ -1,5 +1,9 @@
 # Rationale Code
 
+Replication of part of the study done in the paper:
+
+<i>"Rationalizing Neural Predictions". Tao Lei, Regina Barzilay and Tommi Jaakkola. EMNLP 2016.  [[PDF]](https://people.csail.mit.edu/taolei/papers/emnlp16_rationale.pdf)  [[Slides]](https://people.csail.mit.edu/taolei/papers/emnlp16_rationale_slides.pdf)</i>
+
 ## Results:
 Image of the graph of the network from tensorboard
 <p align="center">
